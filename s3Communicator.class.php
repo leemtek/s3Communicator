@@ -48,7 +48,14 @@ class S3Communicator {
       $milliseconds = round(microtime(true) * 1000);
       $myFileName = (!$newFileName) ? $milliseconds . ".jpg" : $newFileName;
       try {
-        $upload = $this->s3->upload($this->s3Bucket, $myFileName, fopen($formTmpName, 'rb'));
+        $upload = $this->s3->putObject(
+          [
+            'Bucket' => $this->s3Bucket,
+            'Key' => $myFileName,
+            'SourceFile' => $formTmpName,
+            'ContentType' => 'image/jpg'
+          ]
+        );
       } catch (Exception $e) {
         echo 'Caught exception: ',  $e->getMessage(), "\n";
       }
