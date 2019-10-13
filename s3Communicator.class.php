@@ -78,10 +78,8 @@ class S3Communicator {
       //lets detect the REAL image type, not just assume from the filename.
       $myImageExt = $this->derive_image_extension($formTmpName);
 
-      //if its not a jpg, lets convert it to a jpg
-      if ($myImageExt != ".jpg") {
-        $formTmpName = $this->convertImageToJPG($formTmpName, $myImageExt);
-      }
+      //resize to fit within 300x400, then save as jpg
+      $formTmpName = $this->resizeThenConvertImageToJPG($formTmpName, $myImageExt);
 
       $myFileName = (!$newFileName) ? $milliseconds . ".jpg" : $newFileName;
 
@@ -136,26 +134,81 @@ class S3Communicator {
     }
 
     //--------------------------------------------------------------------
-    // CONVERT IMAGE TO JPG
+    // CROP IMAGE, THEN SAVE AS JPG
     //--------------------------------------------------------------------
-    function convertImageToJPG($formTmpName, $imageType) {
+    function resizeThenConvertImageToJPG($formTmpName, $imageType, $crop = false) {
+
       //might make this dynamic later, but for now lets hard-code 80
       $quality = 80;
       $milliseconds = round(microtime(true) * 1000);
       $outputImage = "/tmp/" . $milliseconds . ".jpg";
+      $w = 300;
+      $h = 400;
 
-      switch ($imageType) {
-        case ".png":
-          $imageTmp = imagecreatefrompng($formTmpName);
-          break;
-        case ".gif":
-          $imageTmp = imagecreatefromgif($formTmpName);
-          break;
+      //get original width and height of image
+      list($width, $height) = getimagesize($formTmpName);
 
+      //calc the ratio of the image
+      $r = $width / $height;
+
+      //lets recalculate width and height, cropped if we want it, or keeping image ratio (r)
+      if ($crop) {
+        if ($width > $height) {
+          $width = ceil($width-($width*abs($r-$w/$h)));
+        } else {
+          $height = ceil($height-($height*abs($r-$w/$h)));
+        }
+        $newwidth = $w;
+        $newheight = $h;
+      } else {
+        if ($w/$h > $r) {
+          $newwidth = $h*$r;
+          $newheight = $h;
+        } else {
+          $newheight = $w/$r;
+          $newwidth = $w;
+        }
       }
 
-      imagejpeg($imageTmp, $outputImage, $quality);
+      //create a src image object from the original image
+      switch ($imageType) {
+        case ".jpg":
+          $src = imagecreatefromjpeg($formTmpName);
+          break;
+        case ".png":
+          $src = imagecreatefrompng($formTmpName);
+          break;
+        case ".gif":
+          $src = imagecreatefromgif($formTmpName);
+          break;
+      }
 
+      //create the new image object
+      $dst = imagecreatetruecolor($newwidth, $newheight);
+
+      //perform the resize from source to destination
+      imagecopyresampled($dst, $src, 0, 0, 0, 0, $newwidth, $newheight, $width, $height);
+
+      //lets grab the exif data of the original file, and fix the rotation of the destination image if neccessary
+      $exif = exif_read_data($formTmpName);
+      if(!empty($exif['Orientation'])) {
+        switch($exif['Orientation']) {
+        case 8:
+          $dst = imagerotate($dst,90,0);
+          break;
+        case 3:
+          $dst = imagerotate($dst,180,0);
+          break;
+        case 6:
+          $dst = imagerotate($dst,-90,0);
+          break;
+        } 
+      }
+
+      //save it to the tmp file as a jpg
+      imagejpeg($dst, $outputImage, $quality);
+
+      //return the tmp file location
       return $outputImage;
     }
 
