@@ -5,8 +5,14 @@ include_once(dirname(__FILE__) . "/_settings.php");
 
 // Installed From composer.json
 require 'vendor/autoload.php';
+
+//for s3
 use Aws\S3\S3Client;
 use Aws\S3\Exception\S3Exception;
+
+//for cloudfront
+use Aws\CloudFront\CloudFrontClient; 
+use Aws\Exception\AwsException;
 // /composer.json
 
 
@@ -16,13 +22,17 @@ class S3Communicator {
     private $s3Bucket;
     private $s3CloudFrontURL;
     private $s3;
+    private $s3CloudFrontDistributionID;
+
+    private $cF;
 
     //--------------------------------------------------------------------
     // CONSTRUCT
     //--------------------------------------------------------------------
-    function __construct($bucketName, $cloudFrontURL) {
+    function __construct($bucketName, $cloudFrontURL, $cloudFrontDistID) {
       $this->s3Bucket = $bucketName;
       $this->s3CloudFrontURL = $cloudFrontURL;
+      $this->s3CloudFrontDistributionID = $cloudFrontDistID;
 
       $this->s3 = new S3Client([
           'version' => 'latest',
@@ -32,6 +42,16 @@ class S3Communicator {
             'secret' => S3_SECRET,
           ]
       ]);
+
+      $this->cF = Aws\CloudFront\CloudFrontClient::factory(array(
+        'region' => S3_REGION,
+        'version' => 'latest',
+        'credentials' => [
+          'key'    => S3_KEY,
+          'secret' => S3_SECRET
+        ]
+      ));
+
     }
 
     //--------------------------------------------------------------------
@@ -42,11 +62,26 @@ class S3Communicator {
     }
 
     //--------------------------------------------------------------------
+    // CHECK IF FILE EXISTS
+    //--------------------------------------------------------------------
+    function check_if_exists($theFileName) {
+      $response = $this->s3->doesObjectExist($this->s3Bucket, $theFileName);
+      return $response;
+    }
+
+    //--------------------------------------------------------------------
     // PUT
     //--------------------------------------------------------------------
     function upload_image($formTmpName, $newFileName = null) {
       $milliseconds = round(microtime(true) * 1000);
       $myFileName = (!$newFileName) ? $milliseconds . ".jpg" : $newFileName;
+
+      $invalidation = null;
+      $upload = null;
+
+      //first, lets check if the file exists. if it does, we need to kick off an invalidation after we re-upload this image.
+      $fileAlreadyExists = $this->check_if_exists($myFileName);
+
       try {
         $upload = $this->s3->putObject(
           [
@@ -59,7 +94,41 @@ class S3Communicator {
       } catch (Exception $e) {
         echo 'Caught exception: ',  $e->getMessage(), "\n";
       }
-      return $upload;
+
+      $invalidation = ($fileAlreadyExists) ? $this->invalidate_image($myFileName) : "new file";
+
+      $finalResponse = array(
+        "invalidation" => $invalidation,
+        "upload" => $upload
+      );
+
+      return $finalResponse;
+    }
+
+    //--------------------------------------------------------------------
+    // INVALIDATE IMAGE IN CLOUDFRONT
+    //--------------------------------------------------------------------
+    function invalidate_image($theFileName) {
+      $callerReference = round(microtime(true) * 1000);
+
+      try {
+        $result = $this->cF->createInvalidation([
+          'DistributionId' => $this->s3CloudFrontDistributionID,
+          'InvalidationBatch' => [
+            'CallerReference' => $callerReference,
+            'Paths' => [
+              'Items' => ['/' . $theFileName],
+              'Quantity' => 1,
+            ],
+          ]
+        ]);
+      } catch (AwsException $e) {
+        // output error message if fails
+        echo $e->getMessage();
+        echo "\n";
+      }
+
+     return $result;
     }
 
     //--------------------------------------------------------------------
