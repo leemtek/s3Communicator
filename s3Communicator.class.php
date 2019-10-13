@@ -74,6 +74,15 @@ class S3Communicator {
     //--------------------------------------------------------------------
     function upload_image($formTmpName, $newFileName = null) {
       $milliseconds = round(microtime(true) * 1000);
+
+      //lets detect the REAL image type, not just assume from the filename.
+      $myImageExt = $this->derive_image_extension($formTmpName);
+
+      //if its not a jpg, lets convert it to a jpg
+      if ($myImageExt != ".jpg") {
+        $formTmpName = $this->convertImageToJPG($formTmpName, $myImageExt);
+      }
+
       $myFileName = (!$newFileName) ? $milliseconds . ".jpg" : $newFileName;
 
       $invalidation = null;
@@ -103,6 +112,51 @@ class S3Communicator {
       );
 
       return $finalResponse;
+    }
+
+    //--------------------------------------------------------------------
+    // DERIVE CORRECT IMAGE EXTENSION
+    //--------------------------------------------------------------------
+    function derive_image_extension($formTmpName) {
+      $detectedType = exif_imagetype($formTmpName);
+
+      switch ($detectedType) {
+        case IMAGETYPE_JPEG:
+          $imgExt = ".jpg";
+          break;
+        case IMAGETYPE_PNG:
+          $imgExt = ".png";
+          break;
+        case IMAGETYPE_GIF:
+          $imgExt = ".gif";
+          break;
+      }
+
+      return $imgExt;
+    }
+
+    //--------------------------------------------------------------------
+    // CONVERT IMAGE TO JPG
+    //--------------------------------------------------------------------
+    function convertImageToJPG($formTmpName, $imageType) {
+      //might make this dynamic later, but for now lets hard-code 80
+      $quality = 80;
+      $milliseconds = round(microtime(true) * 1000);
+      $outputImage = "/tmp/" . $milliseconds . ".jpg";
+
+      switch ($imageType) {
+        case ".png":
+          $imageTmp = imagecreatefrompng($formTmpName);
+          break;
+        case ".gif":
+          $imageTmp = imagecreatefromgif($formTmpName);
+          break;
+
+      }
+
+      imagejpeg($imageTmp, $outputImage, $quality);
+
+      return $outputImage;
     }
 
     //--------------------------------------------------------------------
