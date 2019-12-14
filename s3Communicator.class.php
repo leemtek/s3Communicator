@@ -113,6 +113,39 @@ class S3Communicator {
     }
 
     //--------------------------------------------------------------------
+    // DELETE
+    //--------------------------------------------------------------------
+    function delete_image($myFileName) {
+      //first, lets check if the file exists. if it doesn't, we don't need to delete aything.
+      $fileAlreadyExists = $this->check_if_exists($myFileName);
+
+      if ($fileAlreadyExists) {
+        try {
+          $deleted = $this->s3->deleteObject(
+            [
+              'Bucket' => $this->s3Bucket,
+              'Key' => $myFileName
+            ]
+          );
+        } catch (Exception $e) {
+          echo 'Caught exception: ',  $e->getMessage(), "\n";
+        }
+
+        $invalidation = $this->invalidate_image($myFileName);
+
+        $finalResponse = array(
+          "invalidation" => $invalidation,
+          "deleted" => $deleted
+        );
+      } else {
+        $finalResponse = "File does not exist.";
+      }
+
+
+      return $finalResponse;
+    }
+
+    //--------------------------------------------------------------------
     // DERIVE CORRECT IMAGE EXTENSION
     //--------------------------------------------------------------------
     function derive_image_extension($formTmpName) {
